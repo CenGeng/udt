@@ -1,4 +1,4 @@
 /build
 /build64
-# /third_party
+/third_party
 .vscode
