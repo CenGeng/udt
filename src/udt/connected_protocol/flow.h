@@ -18,6 +18,14 @@
 
 #include "udt/connected_protocol/logger/log_entry.h"
 
+/**
+ * @brief 连接协议的流类
+ * 
+ * 该类是连接协议的流类，继承自std::enable_shared_from_this<Flow<Protocol>>。
+ * 它管理连接协议的流操作，包括发送数据包、注册新的套接字等。
+ * 
+ * @tparam Protocol 连接协议类型
+ */
 namespace connected_protocol {
 
 template <class Protocol>
@@ -39,7 +47,23 @@ class Flow : public std::enable_shared_from_this<Flow<Protocol>> {
   using Logger = typename Protocol::logger;
   using SocketSession = typename Protocol::socket_session;
 
+  /**
+   * @brief 比较会话数据包发送时间的函数对象
+   * 
+   * 该函数对象用于比较两个弱引用指向的 SocketSession 对象的下一个计划发送数据包的时间，
+   * 并返回比较结果。如果其中一个 SocketSession 对象已经被销毁，则返回 true。
+   * 
+   * @tparam SocketSession 弱引用指向的 SocketSession 类型
+   */
   struct CompareSessionPacketSendingTime {
+    /**
+     * @brief 比较两个 SocketSession 对象的下一个计划发送数据包的时间
+     * 
+     * @param p_lhs 左侧 SocketSession 对象的弱引用
+     * @param p_rhs 右侧 SocketSession 对象的弱引用
+     * @return true 如果左侧 SocketSession 对象或右侧 SocketSession 对象已经被销毁
+     * @return false 如果左侧 SocketSession 对象的下一个计划发送数据包的时间小于右侧 SocketSession 对象的下一个计划发送数据包的时间
+     */
     bool operator()(std::weak_ptr<SocketSession> p_lhs,
                     std::weak_ptr<SocketSession> p_rhs) {
       auto p_shared_lhs = p_lhs.lock();
@@ -60,6 +84,12 @@ class Flow : public std::enable_shared_from_this<Flow<Protocol>> {
   using Ptr = std::shared_ptr<Flow>;
 
  public:
+  /**
+   * @brief 创建一个指向 Flow 对象的智能指针。
+   * 
+   * @param io_service Boost.Asio 的 io_service 对象引用。
+   * @return 指向 Flow 对象的智能指针。
+   */
   static Ptr Create(boost::asio::io_service& io_service) {
     return Ptr(new Flow(io_service));
   }

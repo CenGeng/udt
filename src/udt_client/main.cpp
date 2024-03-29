@@ -1,7 +1,6 @@
 #include <boost/asio/io_service.hpp>
-#include <boost/asio/write.hpp>
 #include <boost/asio/read.hpp>
-
+#include <boost/asio/write.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/thread.hpp>
@@ -53,15 +52,15 @@ int main(int argc, char* argv[]) {
       boost::asio::async_write(socket, boost::asio::buffer(buffer1),
                                sent_handler);
     } else {
-      BOOST_LOG_TRIVIAL(trace) << "Error on connection : " << ec.value() << " "
-                               << ec.message();
+      BOOST_LOG_TRIVIAL(trace)
+          << "Error on connection : " << ec.value() << " " << ec.message();
     }
   };
 
   sent_handler = [&](const boost::system::error_code& ec, std::size_t length) {
     if (ec) {
-      BOOST_LOG_TRIVIAL(trace) << "Error on sent : " << ec.value() << " "
-                               << ec.message();
+      BOOST_LOG_TRIVIAL(trace)
+          << "Error on sent : " << ec.value() << " " << ec.message();
       return;
     }
 
