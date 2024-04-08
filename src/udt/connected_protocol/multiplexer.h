@@ -1,33 +1,31 @@
 #ifndef UDT_CONNECTED_PROTOCOL_MULTIPLEXER_H_
 #define UDT_CONNECTED_PROTOCOL_MULTIPLEXER_H_
 
-#include <cstdint>
-
 #include <atomic>
-#include <map>
-#include <memory>
-
 #include <boost/asio/buffer.hpp>
-
 #include <boost/bind.hpp>
 #include <boost/chrono.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/optional.hpp>
-
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
-
 #include <boost/system/error_code.hpp>
+#include <cstdint>
+#include <map>
+#include <memory>
 
 #include "udt/common/error/error.h"
-
-#include "udt/connected_protocol/flow.h"
 #include "udt/connected_protocol/cache/connection_info.h"
-
+#include "udt/connected_protocol/flow.h"
 #include "udt/connected_protocol/logger/log_entry.h"
 
 namespace connected_protocol {
 
+/**
+ * @brief 多路复用器类，用于管理多个连接的复用和数据传输
+ *
+ * @tparam Protocol 协议类型
+ */
 template <class Protocol>
 class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
  private:
@@ -62,12 +60,22 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
   using Ptr = std::shared_ptr<Multiplexer>;
 
  public:
+  /**
+   * @brief 创建一个 Multiplexer 实例
+   *
+   * @param p_manager 多路复用器管理器指针
+   * @param socket 下层协议的 socket 对象
+   * @return Ptr 返回 Multiplexer 实例的智能指针
+   */
   static Ptr Create(MultiplexerManager *p_manager, NextSocket socket) {
     return Ptr(new Multiplexer(p_manager, std::move(socket)));
   }
 
   ~Multiplexer() {}
 
+  /**
+   * @brief 启动多路复用器，开始接收数据包
+   */
   void Start() {
     if (!running_.load()) {
       running_ = true;
@@ -75,6 +83,11 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 停止多路复用器，关闭 socket 连接
+   *
+   * @param ec 错误码
+   */
   void Stop(boost::system::error_code &ec) {
     if (running_.load()) {
       running_ = false;
@@ -88,12 +101,31 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 获取 IO 服务对象的引用
+   *
+   * @return boost::asio::io_service& IO 服务对象的引用
+   */
   boost::asio::io_service &get_io_service() { return socket_.get_io_service(); }
 
+  /**
+   * @brief 获取本地端点
+   *
+   * @param ec 错误码
+   * @return NextEndpoint 本地端点
+   */
   NextEndpoint local_endpoint(boost::system::error_code &ec) {
     return socket_.local_endpoint(ec);
   }
 
+  /**
+   * @brief 创建一个 SocketSession 对象
+   *
+   * @param ec 错误码
+   * @param next_remote_endpoint 下一个远程端点
+   * @param user_socket_id 用户指定的 socket id
+   * @return SocketSessionPtr SocketSession 对象的智能指针
+   */
   SocketSessionPtr CreateSocketSession(boost::system::error_code &ec,
                                        const NextEndpoint &next_remote_endpoint,
                                        SocketId user_socket_id = 0) {
@@ -123,6 +155,12 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     return p_session;
   }
 
+  /**
+   * @brief 移除指定的 SocketSession 对象
+   *
+   * @param next_remote_endpoint 下一个远程端点
+   * @param socket_id socket id
+   */
   void RemoveSocketSession(const NextEndpoint &next_remote_endpoint,
                            SocketId socket_id = 0) {
     boost::recursive_mutex::scoped_lock lock_sockets_map(sessions_mutex_);
@@ -144,6 +182,12 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 设置 AcceptorSession 对象
+   *
+   * @param ec 错误码
+   * @param p_acceptor AcceptorSession 对象的智能指针
+   */
   void SetAcceptor(boost::system::error_code &ec,
                    AcceptorSessionPtr p_acceptor) {
     boost::mutex::scoped_lock lock_acceptor(acceptor_mutex_);
@@ -159,6 +203,9 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     ec.assign(::common::error::success, ::common::error::get_error_category());
   }
 
+  /**
+   * @brief 移除 AcceptorSession 对象
+   */
   void RemoveAcceptor() {
     boost::recursive_mutex::scoped_lock lock_sessions(sessions_mutex_);
     boost::mutex::scoped_lock lock_acceptor(acceptor_mutex_);
@@ -170,15 +217,23 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
-  // High priority sending : use for control packet only
+  /**
+   * @brief 异步发送控制数据包
+   *
+   * @tparam Datagram 数据包类型
+   * @tparam Handler 完成处理器类型
+   * @param datagram 数据包对象
+   * @param next_endpoint 下一个端点
+   * @param handler 完成处理器
+   */
   template <class Datagram, class Handler>
   void AsyncSendControlPacket(const Datagram &datagram,
                               const NextEndpoint &next_endpoint,
                               Handler handler) {
     auto self = this->shared_from_this();
-    auto sent_handler =
-        [handler, self](const boost::system::error_code &sent_ec,
-                        std::size_t length) { handler(sent_ec, length); };
+    auto sent_handler = [handler, self](
+                            const boost::system::error_code &sent_ec,
+                            std::size_t length) { handler(sent_ec, length); };
 
     {
       boost::mutex::scoped_lock lock_socket(socket_mutex_);
@@ -187,6 +242,15 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 异步发送数据包
+   *
+   * @tparam Datagram 数据包类型
+   * @tparam Handler 完成处理器类型
+   * @param p_datagram 数据包指针
+   * @param next_endpoint 下一个端点
+   * @param handler 完成处理器
+   */
   template <class Datagram, class Handler>
   void AsyncSendDataPacket(Datagram *p_datagram,
                            const NextEndpoint &next_endpoint, Handler handler) {
@@ -203,7 +267,8 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     p_datagram->set_pending_send(true);
     auto self = this->shared_from_this();
     auto sent_handler = [p_datagram, handler, self](
-        const boost::system::error_code &sent_ec, std::size_t length) {
+                            const boost::system::error_code &sent_ec,
+                            std::size_t length) {
       p_datagram->set_pending_send(false);
       if (!sent_ec && Logger::ACTIVE) {
         self->sent_count_ = self->sent_count_.load() + 1;
@@ -218,10 +283,18 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 记录日志信息
+   *
+   * @param p_log 日志条目指针
+   */
   void Log(connected_protocol::logger::LogEntry *p_log) {
     p_log->multiplexer_sent_count = sent_count_.load();
   }
 
+  /**
+   * @brief 重置日志信息
+   */
   void ResetLog() { sent_count_ = 0; }
 
  private:
@@ -243,6 +316,9 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
                 .count())),
         sent_count_(0) {}
 
+  /**
+   * @brief 读取数据包
+   */
   void ReadPacket() {
     if (!running_.load() || !socket_.is_open()) {
       return;
@@ -260,6 +336,14 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
     }
   }
 
+  /**
+   * @brief 处理接收到的数据包
+   *
+   * @param p_generic_packet 接收到的数据包指针
+   * @param p_next_remote_endpoint 下一个远程端点指针
+   * @param ec 错误码
+   * @param length 接收到的数据包长度
+   */
   void HandlePacket(GenericDatagramPtr p_generic_packet,
                     NextEndpointPtr p_next_remote_endpoint,
                     const boost::system::error_code &ec, std::size_t length) {
@@ -415,21 +499,21 @@ class Multiplexer : public std::enable_shared_from_this<Multiplexer<Protocol>> {
   }
 
  private:
-  MultiplexerManager *p_manager_;
-  boost::mutex socket_mutex_;
-  NextSocket socket_;
-  std::unique_ptr<boost::asio::io_service::work> p_worker_;
-  std::atomic<bool> running_;
-  boost::recursive_mutex flows_mutex_;
-  FlowsMap flows_;
-  boost::recursive_mutex sessions_mutex_;
-  RemoteEndpointFlowMap remote_endpoint_flow_sessions_;
-  boost::mutex acceptor_mutex_;
-  AcceptorSessionPtr p_acceptor_;
-  boost::random::mt19937 gen_;
-  std::atomic<uint32_t> sent_count_;
+  MultiplexerManager *p_manager_;  ///< 多路复用器管理器
+  boost::mutex socket_mutex_;      ///< 套接字互斥锁
+  NextSocket socket_;              ///< 下一个套接字
+  std::unique_ptr<boost::asio::io_service::work> p_worker_;  ///< 工作指针
+  std::atomic<bool> running_;                                ///< 运行状态
+  boost::recursive_mutex flows_mutex_;                       ///< 流互斥锁
+  FlowsMap flows_;                                           ///< 流映射
+  boost::recursive_mutex sessions_mutex_;                ///< 会话互斥锁
+  RemoteEndpointFlowMap remote_endpoint_flow_sessions_;  ///< 远程端点流映射
+  boost::mutex acceptor_mutex_;                          ///< 接收器互斥锁
+  AcceptorSessionPtr p_acceptor_;                        ///< 接收器指针
+  boost::random::mt19937 gen_;                           ///< 随机数生成器
+  std::atomic<uint32_t> sent_count_;                     ///< 发送计数
 };
 
-}  // connected_protocol
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_MULTIPLEXER_H_

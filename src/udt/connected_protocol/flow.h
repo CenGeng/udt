@@ -96,6 +96,13 @@ class Flow : public std::enable_shared_from_this<Flow<Protocol>> {
 
   ~Flow() {}
 
+  /**
+   * @brief 注册新的套接字
+   * 
+   * 将新的套接字会话注册到流中。
+   * 
+   * @param p_session 新的套接字会话指针
+   */
   void RegisterNewSocket(typename SocketSession::Ptr p_session) {
     {
       boost::recursive_mutex::scoped_lock lock(mutex_);
@@ -109,10 +116,22 @@ class Flow : public std::enable_shared_from_this<Flow<Protocol>> {
     StartPullingSocketQueue();
   }
 
+  /**
+   * @brief 记录日志
+   * 
+   * 将流的发送计数记录到日志中。
+   * 
+   * @param p_log 日志条目指针
+   */
   void Log(connected_protocol::logger::LogEntry* p_log) {
     p_log->flow_sent_count = sent_count_.load();
   }
 
+  /**
+   * @brief 重置日志
+   * 
+   * 将发送计数重置为0。
+   */
   void ResetLog() { sent_count_ = 0; }
 
  private:
