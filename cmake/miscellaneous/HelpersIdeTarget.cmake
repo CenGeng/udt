@@ -32,7 +32,7 @@ cmake_policy(PUSH)
 
 foreach(_policy CMP0053 CMP0026)
   if(POLICY ${_policy})
-    cmake_policy(SET ${_policy} OLD)
+    cmake_policy(SET ${_policy} NEW)
   endif()
 endforeach()
 
