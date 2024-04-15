@@ -1,26 +1,31 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_STATE_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_STATE_H_
 
-#include <cstdint>
-
-#include <memory>
-
 #include <boost/bind.hpp>
 #include <boost/chrono.hpp>
 #include <boost/log/trivial.hpp>
+#include <cstdint>
+#include <memory>
 
+#include "udt/connected_protocol/io/buffers.h"
 #include "udt/connected_protocol/io/read_op.h"
 #include "udt/connected_protocol/io/write_op.h"
-#include "udt/connected_protocol/io/buffers.h"
-
 #include "udt/connected_protocol/state/base_state.h"
-
-#include "udt/connected_protocol/state/connected/sender.h"
 #include "udt/connected_protocol/state/connected/receiver.h"
+#include "udt/connected_protocol/state/connected/sender.h"
 
 namespace connected_protocol {
 namespace state {
 
+/**
+ * @brief 连接状态类
+ *
+ * 该类是连接状态的实现，继承自BaseState类，并实现了ConnectionPolicy策略。
+ * 该类负责处理连接状态下的数据传输、控制消息的处理以及定时器的管理。
+ *
+ * @tparam Protocol 协议类型
+ * @tparam ConnectionPolicy 连接策略类型
+ */
 template <class Protocol, class ConnectionPolicy>
 class ConnectedState : public BaseState<Protocol>,
                        public std::enable_shared_from_this<
@@ -30,6 +35,7 @@ class ConnectedState : public BaseState<Protocol>,
   using Ptr = std::shared_ptr<ConnectedState>;
 
  private:
+  // 类型别名
   using CongestionControl = typename Protocol::congestion_control;
   using SocketSession = typename Protocol::socket_session;
   using Clock = typename Protocol::clock;
@@ -38,6 +44,7 @@ class ConnectedState : public BaseState<Protocol>,
   using Logger = typename Protocol::logger;
 
  private:
+  // 类型别名
   using SendDatagram = typename Protocol::SendDatagram;
   using DataDatagram = typename Protocol::DataDatagram;
   using ConnectionDatagram = typename Protocol::ConnectionDatagram;
@@ -55,25 +62,44 @@ class ConnectedState : public BaseState<Protocol>,
   using ShutdownDatagramPtr = std::shared_ptr<ShutdownDatagram>;
 
  private:
+  // 类型别名
   using ClosedState = typename state::ClosedState<Protocol>;
   using Sender = typename connected::Sender<Protocol, ConnectedState>;
   using Receiver = typename connected::Receiver<Protocol, ConnectedState>;
 
  private:
+  // 类型别名
   using PacketSequenceNumber = uint32_t;
   using AckSequenceNumber = uint32_t;
 
  public:
+  /**
+   * @brief 创建ConnectedState对象的静态工厂方法
+   *
+   * @param p_session SocketSession对象指针
+   * @return Ptr 返回ConnectedState对象的智能指针
+   */
   static Ptr Create(typename SocketSession::Ptr p_session) {
     return Ptr(new ConnectedState(std::move(p_session)));
   }
 
+  /**
+   * @brief 析构函数
+   */
   virtual ~ConnectedState() {}
 
+  /**
+   * @brief 获取状态类型
+   *
+   * @return typename BaseState<Protocol>::type 返回状态类型
+   */
   virtual typename BaseState<Protocol>::type GetType() {
     return this->CONNECTED;
   }
 
+  /**
+   * @brief 初始化连接状态
+   */
   virtual void Init() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -99,12 +125,18 @@ class ConnectedState : public BaseState<Protocol>,
         &ConnectedState::NAckTimerHandler, this->shared_from_this(), _1));*/
   }
 
+  /**
+   * @brief 停止连接状态
+   */
   virtual void Stop() {
     StopTimers();
     StopServices();
     CloseConnection();
   }
 
+  /**
+   * @brief 关闭连接
+   */
   virtual void Close() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -117,6 +149,11 @@ class ConnectedState : public BaseState<Protocol>,
     }
   }
 
+  /**
+   * @brief 处理数据数据报
+   *
+   * @param p_datagram 数据数据报指针
+   */
   virtual void OnDataDgr(DataDatagram* p_datagram) {
     if (closed_.load()) {
       return;
@@ -138,6 +175,11 @@ class ConnectedState : public BaseState<Protocol>,
     }
   }
 
+  /**
+   * @brief 推入读操作
+   *
+   * @param read_op 读操作指针
+   */
   virtual void PushReadOp(
       io::basic_pending_stream_read_operation<Protocol>* read_op) {
     if (closed_.load()) {
@@ -146,6 +188,11 @@ class ConnectedState : public BaseState<Protocol>,
     receiver_.PushReadOp(read_op);
   }
 
+  /**
+   * @brief 推入写操作
+   *
+   * @param write_op 写操作指针
+   */
   virtual void PushWriteOp(io::basic_pending_write_operation* write_op) {
     if (closed_.load()) {
       return;
@@ -153,12 +200,27 @@ class ConnectedState : public BaseState<Protocol>,
     sender_.PushWriteOp(write_op);
   }
 
+  /**
+   * @brief 是否有待发送的数据包
+   *
+   * @return bool 如果有待发送的数据包则返回true，否则返回false
+   */
   virtual bool HasPacketToSend() { return sender_.HasPacketToSend(); }
 
+  /**
+   * @brief 获取下一个计划发送数据包的时间
+   *
+   * @return boost::chrono::nanoseconds 返回下一个计划发送数据包的时间
+   */
   virtual boost::chrono::nanoseconds NextScheduledPacketTime() {
     return sender_.NextScheduledPacketTime();
   }
 
+  /**
+   * @brief 获取下一个计划发送的数据包
+   *
+   * @return SendDatagram* 返回下一个计划发送的数据包指针
+   */
   virtual SendDatagram* NextScheduledPacket() {
     SendDatagram* p_datagram(sender_.NextScheduledPacket());
     if (p_datagram) {
@@ -168,6 +230,11 @@ class ConnectedState : public BaseState<Protocol>,
     return p_datagram;
   }
 
+  /**
+   * @brief 处理连接数据报
+   *
+   * @param p_connection_dgr 连接数据报指针
+   */
   virtual void OnConnectionDgr(ConnectionDatagramPtr p_connection_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -176,10 +243,15 @@ class ConnectedState : public BaseState<Protocol>,
     if (closed_.load()) {
       return;
     }
-    // Call policy to process connection datagram
+    // 调用策略处理连接数据报
     this->ProcessConnectionDgr(p_session.get(), std::move(p_connection_dgr));
   }
 
+  /**
+   * @brief 处理控制数据报
+   *
+   * @param p_control_dgr 控制数据报指针
+   */
   virtual void OnControlDgr(ControlDatagram* p_control_dgr) {
     if (closed_.load()) {
       return;
@@ -225,6 +297,11 @@ class ConnectedState : public BaseState<Protocol>,
   }
 
  private:
+  /**
+   * @brief 私有构造函数
+   *
+   * @param p_session SocketSession对象指针
+   */
   ConnectedState(typename SocketSession::Ptr p_session)
       : BaseState<Protocol>(p_session->get_io_service()),
         p_session_(p_session),
@@ -246,6 +323,9 @@ class ConnectedState : public BaseState<Protocol>,
         packet_received_since_light_ack_(0) {}
 
  private:
+  /**
+   * @brief 停止服务
+   */
   void StopServices() {
     sender_.Stop();
     receiver_.Stop();
@@ -253,6 +333,9 @@ class ConnectedState : public BaseState<Protocol>,
 
   // Timer processing
  private:
+  /**
+   * @brief 停止定时器
+   */
   void StopTimers() {
     boost::system::error_code ec;
     stop_timers_ = true;
@@ -261,6 +344,12 @@ class ConnectedState : public BaseState<Protocol>,
     exp_timer_.cancel(ec);
   }
 
+  /**
+   * @brief ACK定时器处理函数
+   *
+   * @param ec 错误码
+   * @param light_ack 是否为轻量级ACK
+   */
   void AckTimerHandler(const boost::system::error_code& ec,
                        bool light_ack = false) {
     auto p_session = p_session_.lock();
@@ -340,6 +429,11 @@ class ConnectedState : public BaseState<Protocol>,
         });
   }
 
+  /**
+   * @brief 启动确认计时器
+   * @details
+   * 此函数用于启动确认计时器，该计时器在会话存在且计时器未停止的情况下设置到期时间，并异步等待确认计时器处理程序的调用。
+   */
   void LaunchAckTimer() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -354,6 +448,11 @@ class ConnectedState : public BaseState<Protocol>,
                                       this->shared_from_this(), _1, false));
   }
 
+  /**
+   * @brief 记录日志
+   * @param p_log 日志条目指针
+   * @details 此函数用于记录各种计数和接收器状态到日志条目。
+   */
   virtual void Log(connected_protocol::logger::LogEntry* p_log) {
     p_log->received_count = received_count_.load();
     p_log->nack_count = nack_count_.load();
@@ -365,6 +464,10 @@ class ConnectedState : public BaseState<Protocol>,
     p_log->ack2_sent_count = ack2_sent_count_.load();
   }
 
+  /**
+   * @brief 重置日志
+   * @details 此函数用于重置所有的计数器。
+   */
   void ResetLog() {
     nack_count_ = 0;
     ack_count_ = 0;
@@ -374,14 +477,30 @@ class ConnectedState : public BaseState<Protocol>,
     ack2_sent_count_ = 0;
   }
 
+  /**
+   * @brief 获取数据包到达速度
+   * @return 数据包到达速度
+   * @details 此函数返回接收器计算的数据包到达速度。
+   */
   virtual double PacketArrivalSpeed() {
     return receiver_.GetPacketArrivalSpeed();
   }
 
+  /**
+   * @brief 获取估计的链路容量
+   * @return 估计的链路容量
+   * @details 此函数返回接收器计算的估计链路容量。
+   */
   virtual double EstimatedLinkCapacity() {
     return receiver_.GetEstimatedLinkCapacity();
   }
 
+  /**
+   * @brief NACK计时器处理程序
+   * @param ec 错误代码
+   * @details
+   * 此函数是NACK计时器的处理程序，它在会话存在且计时器未停止的情况下设置NACK计时器的到期时间，并异步等待NACK计时器处理程序的调用。
+   */
   void NAckTimerHandler(const boost::system::error_code& ec) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -407,6 +526,11 @@ class ConnectedState : public BaseState<Protocol>,
     }
   }
 
+  /**
+   * @brief 重置过期
+   * @param with_timer 是否重置计时器
+   * @details 此函数用于重置接收器的过期计数器，并在需要时取消过期计时器。
+   */
   void LaunchExpTimer() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -424,6 +548,12 @@ class ConnectedState : public BaseState<Protocol>,
                                       this->shared_from_this(), _1));
   }
 
+  /**
+   * @brief 过期计时器处理程序
+   * @param ec 错误代码
+   * @details
+   * 此函数是过期计时器的处理程序，它在会话存在且计时器未停止的情况下设置过期计时器的到期时间，并异步等待过期计时器处理程序的调用。
+   */
   void ExpTimerHandler(const boost::system::error_code& ec) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -472,6 +602,12 @@ class ConnectedState : public BaseState<Protocol>,
 
   // Packet processing
  private:
+  /**
+   * @brief 处理确认数据包
+   * @param ack_dgr 确认数据包
+   * @details
+   * 此函数用于处理接收到的确认数据包。它更新了发送方的包序列号，并在需要时启动确认计时器。
+   */
   void OnAck(const AckDatagram& ack_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -551,6 +687,12 @@ class ConnectedState : public BaseState<Protocol>,
     }
   }
 
+  /**
+   * @brief 处理NACK数据包
+   * @param nack_dgr NACK数据包
+   * @details
+   * 此函数用于处理接收到的NACK数据包。它将丢失的包序列号添加到重传队列，并在需要时启动NACK计时器。
+   */
   void OnNAck(const NAckDatagram& nack_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -565,6 +707,12 @@ class ConnectedState : public BaseState<Protocol>,
     congestion_control_.OnLoss(nack_dgr, p_session->packet_seq_gen());
   }
 
+  /**
+   * @brief 处理AckOfAck数据包
+   * @param ack_of_ack_dgr AckOfAck数据包
+   * @details
+   * 此函数用于处理接收到的AckOfAck数据包。它停止了确认计时器，并更新了发送方的包序列号。
+   */
   void OnAckOfAck(const AckOfAckDatagram& ack_of_ack_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -598,6 +746,10 @@ class ConnectedState : public BaseState<Protocol>,
     }
   }
 
+  /**
+   * @brief 关闭连接
+   * @details 此函数用于关闭连接。它停止了所有计时器，并将会话状态设置为关闭。
+   */
   void CloseConnection() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -609,7 +761,9 @@ class ConnectedState : public BaseState<Protocol>,
     auto self = this->shared_from_this();
     ShutdownDatagramPtr p_shutdown_dgr = std::make_shared<ShutdownDatagram>();
     auto shutdown_handler = [self, p_session, p_shutdown_dgr](
-        const boost::system::error_code&, std::size_t) { p_session->Unbind(); };
+                                const boost::system::error_code&, std::size_t) {
+      p_session->Unbind();
+    };
 
     p_session->UpdateCacheConnection();
 
@@ -618,6 +772,12 @@ class ConnectedState : public BaseState<Protocol>,
         ShutdownDatagram::Header::NO_ADDITIONAL_INFO, shutdown_handler);
   }
 
+  /**
+   * @brief 获取数据包序列值
+   * @param seq_num 序列号
+   * @return 数据包序列值
+   * @details 此函数用于获取数据包序列值。它返回了给定序列号的数据包序列值。
+   */
   PacketSequenceNumber GetPacketSequenceValue(
       PacketSequenceNumber seq_num) const {
     return seq_num & 0x7FFFFFFF;
@@ -643,7 +803,7 @@ class ConnectedState : public BaseState<Protocol>,
   std::atomic<uint32_t> packet_received_since_light_ack_;
 };
 
-}  // state
-}  // connected_protocol
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_STATE_H_

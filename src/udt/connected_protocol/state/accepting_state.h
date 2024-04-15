@@ -1,23 +1,27 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_ACCEPTING_STATE_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_ACCEPTING_STATE_H_
 
-#include <cstdint>
-
-#include <memory>
-
 #include <boost/chrono.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/system/error_code.hpp>
+#include <cstdint>
+#include <memory>
 
 #include "udt/connected_protocol/state/base_state.h"
-#include "udt/connected_protocol/state/connected_state.h"
 #include "udt/connected_protocol/state/closed_state.h"
-
+#include "udt/connected_protocol/state/connected_state.h"
 #include "udt/connected_protocol/state/policy/response_connection_policy.h"
 
 namespace connected_protocol {
 namespace state {
 
+/**
+ * @brief 接受状态类模板
+ *
+ * 该类是接受状态的实现，继承自BaseState类，并使用std::enable_shared_from_this来支持共享指针。
+ *
+ * @tparam Protocol 协议类型
+ */
 template <class Protocol>
 class AcceptingState
     : public BaseState<Protocol>,
@@ -37,16 +41,35 @@ class AcceptingState
       Protocol, typename policy::ResponseConnectionPolicy<Protocol>>;
 
  public:
+  /**
+   * @brief 创建AcceptingState对象的静态方法
+   *
+   * @param p_session SocketSession指针
+   * @return Ptr AcceptingState的共享指针
+   */
   static Ptr Create(typename SocketSession::Ptr p_session) {
     return Ptr(new AcceptingState(std::move(p_session)));
   }
 
+  /**
+   * @brief 析构函数
+   */
   virtual ~AcceptingState() {}
 
+  /**
+   * @brief 获取状态类型
+   *
+   * @return typename BaseState<Protocol>::type 状态类型
+   */
   virtual typename BaseState<Protocol>::type GetType() {
     return this->ACCEPTING;
   }
 
+  /**
+   * @brief 初始化函数
+   *
+   * 设置会话的起始时间戳。
+   */
   virtual void Init() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -56,6 +79,11 @@ class AcceptingState
     p_session->set_start_timestamp(Clock::now());
   }
 
+  /**
+   * @brief 关闭函数
+   *
+   * 关闭会话，切换到ClosedState状态，停止定时器，并解绑会话。
+   */
   void Close() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -63,17 +91,22 @@ class AcceptingState
     }
 
     auto self = this->shared_from_this();
-    // state session to closed state
+    // 切换到ClosedState状态
     p_session->ChangeState(ClosedState::Create(this->get_io_service()));
 
-    // stop timers
+    // 停止定时器
     boost::system::error_code timer_ec;
     timeout_timer_.cancel(timer_ec);
 
-    // Unbind session
+    // 解绑会话
     p_session->Unbind();
   }
 
+  /**
+   * @brief 处理连接数据报函数
+   *
+   * @param p_connection_dgr 连接数据报指针
+   */
   virtual void OnConnectionDgr(ConnectionDatagramPtr p_connection_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -88,7 +121,7 @@ class AcceptingState
     auto self = this->shared_from_this();
     if (receive_cookie == p_session->syn_cookie() &&
         client_socket == p_session->remote_socket_id()) {
-      // Very first handshake response
+      // 第一次握手响应
       if (p_session->max_window_flow_size() == 0) {
         p_session->get_p_connection_info()->set_packet_data_size(std::min(
             static_cast<uint32_t>(Protocol::MTU),
@@ -106,7 +139,7 @@ class AcceptingState
         timeout_timer_.cancel(timer_ec);
       }
 
-      // Reply handshake response
+      // 回复握手响应
       header.set_destination_socket(p_session->remote_socket_id());
       payload.set_version(ConnectionDatagram::Payload::FORTH);
       payload.set_socket_type(ConnectionDatagram::Payload::STREAM);
@@ -129,11 +162,19 @@ class AcceptingState
   }
 
  private:
+  /**
+   * @brief 私有构造函数
+   *
+   * @param p_session SocketSession指针
+   */
   AcceptingState(typename SocketSession::Ptr p_session)
       : BaseState<Protocol>(p_session->get_io_service()),
         p_session_(p_session),
         timeout_timer_(p_session->get_io_service()) {}
 
+  /**
+   * @brief 启动超时定时器
+   */
   void StartTimeoutTimer() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -147,9 +188,14 @@ class AcceptingState
                                           this->shared_from_this(), _1));
   }
 
+  /**
+   * @brief 处理超时定时器
+   *
+   * @param ec 错误码
+   */
   void HandleTimeoutTimer(const boost::system::error_code& ec) {
     if (!ec) {
-      // Accepting timeout
+      // 接受超时
       Close();
     }
   }
@@ -159,7 +205,7 @@ class AcceptingState
   Timer timeout_timer_;
 };
 
-}  // state
-}  // connected_protocol
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_ACCEPTING_STATE_H_

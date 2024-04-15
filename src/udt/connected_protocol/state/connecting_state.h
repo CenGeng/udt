@@ -1,27 +1,28 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTING_STATE_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTING_STATE_H_
 
-#include <cstdint>
-
-#include <chrono>
-#include <memory>
-
 #include <boost/asio/basic_waitable_timer.hpp>
-
 #include <boost/chrono.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/system/error_code.hpp>
+#include <chrono>
+#include <cstdint>
+#include <memory>
 
 #include "udt/common/error/error.h"
-
 #include "udt/connected_protocol/io/connect_op.h"
 #include "udt/connected_protocol/state/base_state.h"
 #include "udt/connected_protocol/state/closed_state.h"
 #include "udt/connected_protocol/state/connected_state.h"
-
 #include "udt/connected_protocol/state/policy/drop_connection_policy.h"
 
 namespace connected_protocol {
+/**
+ * @brief 连接状态类
+ *
+ * 连接状态类用于表示连接过程中的状态。该类继承自BaseState类，并通过std::enable_shared_from_this
+ * 实现了共享指针的功能。该类包含了一些模板参数和类型别名，以及一些成员函数和成员变量。
+ */
 namespace state {
 
 template <class Protocol>
@@ -42,6 +43,15 @@ class ConnectingState
                             typename policy::DropConnectionPolicy<Protocol>>;
 
  public:
+  /**
+   * @brief 创建ConnectingState对象
+   *
+   * 通过给定的SocketSession和连接操作指针创建一个ConnectingState对象。
+   *
+   * @param p_socket_session SocketSession对象的智能指针
+   * @param p_connection_op 连接操作指针
+   * @return Ptr ConnectingState对象的智能指针
+   */
   static Ptr Create(
       typename SocketSession::Ptr p_socket_session,
       io::basic_pending_connect_operation<Protocol> *p_connection_op) {
@@ -50,10 +60,22 @@ class ConnectingState
 
   virtual ~ConnectingState() {}
 
+  /**
+   * @brief 获取状态类型
+   *
+   * 获取当前状态的类型。
+   *
+   * @return typename BaseState<Protocol>::type 状态类型
+   */
   virtual typename BaseState<Protocol>::type GetType() {
     return this->CONNECTING;
   }
 
+  /**
+   * @brief 初始化状态
+   *
+   * 初始化连接状态，设置起始时间戳并调用Connect函数。
+   */
   virtual void Init() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -64,6 +86,11 @@ class ConnectingState
     Connect();
   }
 
+  /**
+   * @brief 关闭状态
+   *
+   * 关闭连接状态，解绑会话。
+   */
   virtual void Close() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -74,6 +101,13 @@ class ConnectingState
     p_session->Unbind();
   }
 
+  /**
+   * @brief 处理连接数据报
+   *
+   * 处理接收到的连接数据报，根据数据报的类型执行相应的操作。
+   *
+   * @param p_connection_dgr 连接数据报的智能指针
+   */
   virtual void OnConnectionDgr(ConnectionDatagramPtr p_connection_dgr) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -146,6 +180,12 @@ class ConnectingState
   }
 
  private:
+  /**
+   * @brief 私有构造函数
+   *
+   * @param p_session Socket会话的智能指针
+   * @param p_connection_op 连接操作的指针
+   */
   ConnectingState(
       typename SocketSession::Ptr p_session,
       io::basic_pending_connect_operation<Protocol> *p_connection_op)
@@ -156,6 +196,11 @@ class ConnectingState
         timeout_timer_(p_session->get_io_service()),
         stop_sending_(false) {}
 
+  /**
+   * @brief 连接函数
+   *
+   * 初始化连接数据报并开始超时计时器。除非超时或连接建立，否则不停止发送初始握手数据报。
+   */
   void Connect() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -185,6 +230,13 @@ class ConnectingState
                     this->shared_from_this(), p_connection_dgr, _1, _2));
   }
 
+  /**
+   * @brief 发送循环连接数据报函数
+   *
+   * @param p_connection_dgr 连接数据报的智能指针
+   * @param sent_ec 发送错误代码，默认为无错误
+   * @param length 长度，默认为0
+   */
   void SendLoopConnectionDgr(
       ConnectionDatagramPtr p_connection_dgr,
       const boost::system::error_code &sent_ec = boost::system::error_code(),
@@ -225,6 +277,11 @@ class ConnectingState
         });
   }
 
+  /**
+   * @brief 开始超时计时器函数
+   *
+   * 如果会话存在，则设置超时计时器的过期时间并开始异步等待。
+   */
   void StartTimeoutTimer() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -238,12 +295,24 @@ class ConnectingState
                                           this->shared_from_this(), _1));
   }
 
+  /**
+   * @brief 处理超时计时器函数
+   *
+   * @param ec 错误代码
+   *
+   * 如果没有错误，则停止连接。
+   */
   void HandleTimeoutTimer(const boost::system::error_code &ec) {
     if (!ec) {
       StopConnection();
     }
   }
 
+  /**
+   * @brief 停止连接函数
+   *
+   * 如果会话存在，则停止发送，关闭连接，取消计时器，并通过连接操作的完成处理函数发送连接中断的错误代码。
+   */
   void StopConnection() {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -277,7 +346,7 @@ class ConnectingState
   bool stop_sending_;
 };
 
-}  // state
-}  // connected_protocol
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTING_STATE_H_
