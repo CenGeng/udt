@@ -1,23 +1,23 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_ACK_HISTORY_WINDOW_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_ACK_HISTORY_WINDOW_H_
 
-#include <cstdint>
-
 #include <algorithm>
+#include <boost/asio/high_resolution_timer.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/chrono.hpp>
+#include <boost/thread/mutex.hpp>
+#include <cstdint>
 #include <map>
 #include <numeric>
 #include <queue>
 
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/high_resolution_timer.hpp>
-
-#include <boost/chrono.hpp>
-
-#include <boost/thread/mutex.hpp>
-
 namespace connected_protocol {
 namespace state {
 namespace connected {
+
+/**
+ * @brief 确认历史窗口类，用于存储和处理确认信息的历史记录
+ */
 class AckHistoryWindow {
  public:
   using PacketSequenceNumber = uint32_t;
@@ -26,6 +26,10 @@ class AckHistoryWindow {
   using TimePoint = boost::chrono::time_point<Clock>;
 
  public:
+  /**
+   * @brief 构造函数
+   * @param size 窗口大小，默认为1024
+   */
   AckHistoryWindow(uint32_t size = 1024)
       : mutex_(),
         current_index_(0),
@@ -34,6 +38,11 @@ class AckHistoryWindow {
         ack_sequence_numbers_(size),
         ack_timestamps_(size) {}
 
+  /**
+   * @brief 存储确认信息
+   * @param ack_num 确认序列号
+   * @param packet_num 数据包序列号
+   */
   void StoreAck(AckSequenceNumber ack_num, PacketSequenceNumber packet_num) {
     boost::mutex::scoped_lock lock(mutex_);
     uint32_t window_size =
@@ -47,6 +56,13 @@ class AckHistoryWindow {
     }
   }
 
+  /**
+   * @brief 确认指定的确认序列号，并返回对应的数据包序列号和往返时间
+   * @param ack_seq_num 确认序列号
+   * @param p_packet_seq_num 用于存储数据包序列号的指针
+   * @param p_rtt 用于存储往返时间的指针
+   * @return 如果确认序列号存在，则返回true；否则返回false
+   */
   bool Acknowledge(AckSequenceNumber ack_seq_num,
                    PacketSequenceNumber* p_packet_seq_num,
                    boost::chrono::microseconds* p_rtt) {
@@ -61,7 +77,7 @@ class AckHistoryWindow {
           *p_rtt = boost::chrono::duration_cast<boost::chrono::microseconds>(
               Clock::now() - ack_timestamps_[i]);
 
-          // Update last ack seq number ever ever being acknowledge
+          // 更新最后一个被确认的确认序列号
           if (i + 1 == current_index_) {
             oldest_index_ = current_index_ = 0;
             packet_sequence_numbers_[current_index_] = 0;
@@ -72,7 +88,7 @@ class AckHistoryWindow {
           return true;
         }
       }
-      // Ack seq number overwritten
+      // 确认序列号被覆盖
       return false;
     } else {
       for (uint32_t i = oldest_index_, n = current_index_ + window_size; i < n;
@@ -83,7 +99,7 @@ class AckHistoryWindow {
           *p_rtt = boost::chrono::duration_cast<boost::chrono::microseconds>(
               Clock::now() - ack_timestamps_[i]);
 
-          // Update last ack seq number ever ever being acknowledge
+          // 更新最后一个被确认的确认序列号
           if (i == current_index_) {
             oldest_index_ = current_index_ = 0;
             packet_sequence_numbers_[current_index_] = 0;
@@ -94,7 +110,7 @@ class AckHistoryWindow {
           return true;
         }
       }
-      // Ack seq number overwritten
+      // 确认序列号被覆盖
       return false;
     }
   }
@@ -108,8 +124,8 @@ class AckHistoryWindow {
   std::vector<TimePoint> ack_timestamps_;
 };
 
-}  // connected
-}  // state
-}  // connected_protocol
+}  // namespace connected
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_ACK_HISTORY_WINDOW_H_

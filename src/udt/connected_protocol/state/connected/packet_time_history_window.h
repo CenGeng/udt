@@ -1,27 +1,34 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_PACKET_TIME_HISTORY_WINDOW_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_PACKET_TIME_HISTORY_WINDOW_H_
 
-#include <cstdint>
-
 #include <algorithm>
-#include <chrono>
-#include <numeric>
-
-#include <boost/circular_buffer.hpp>
 #include <boost/chrono.hpp>
+#include <boost/circular_buffer.hpp>
 #include <boost/thread/mutex.hpp>
+#include <chrono>
+#include <cstdint>
+#include <numeric>
 
 namespace connected_protocol {
 namespace state {
 namespace connected {
 
+/**
+ * @brief 用于记录数据包到达时间和探测时间间隔的历史窗口类。
+ */
 class PacketTimeHistoryWindow {
  private:
-  using TimePoint = boost::chrono::time_point<boost::chrono::high_resolution_clock>;
+  using TimePoint =
+      boost::chrono::time_point<boost::chrono::high_resolution_clock>;
   using MicrosecUnit = int_least64_t;
   using CircularBuffer = boost::circular_buffer<MicrosecUnit>;
 
  public:
+  /**
+   * @brief 构造函数，初始化历史窗口的大小和初始值。
+   * @param max_arrival_size 最大到达时间间隔历史记录大小，默认为16。
+   * @param max_probe_size 最大探测时间间隔历史记录大小，默认为64。
+   */
   PacketTimeHistoryWindow(uint32_t max_arrival_size = 16,
                           uint32_t max_probe_size = 64)
       : arrival_mutex_(),
@@ -33,6 +40,11 @@ class PacketTimeHistoryWindow {
         probe_interval_history_(max_probe_size),
         first_probe_arrival_(boost::chrono::high_resolution_clock::now()) {}
 
+  /**
+   * @brief 初始化历史窗口的初始值。
+   * @param packet_arrival_speed 数据包到达速度，默认为1000000.0。
+   * @param estimated_capacity 预估链路容量，默认为1000.0。
+   */
   void Init(double packet_arrival_speed = 1000000.0,
             double estimated_capacity = 1000.0) {
     MicrosecUnit packet_interval(
@@ -47,30 +59,40 @@ class PacketTimeHistoryWindow {
     }
   }
 
+  /**
+   * @brief 记录数据包到达时间。
+   */
   void OnArrival() {
     boost::mutex::scoped_lock lock_arrival(arrival_mutex_);
-    TimePoint arrival_time(
-        boost::chrono::high_resolution_clock::now());
+    TimePoint arrival_time(boost::chrono::high_resolution_clock::now());
     MicrosecUnit delta(DeltaTime(arrival_time, last_arrival_));
     arrival_interval_history_.push_back(delta);
     last_arrival_ = arrival_time;
   }
 
+  /**
+   * @brief 记录第一次探测时间。
+   */
   void OnFirstProbe() {
     boost::mutex::scoped_lock lock_probe(probe_mutex_);
     first_probe_arrival_ = boost::chrono::high_resolution_clock::now();
   }
 
+  /**
+   * @brief 记录第二次探测时间。
+   */
   void OnSecondProbe() {
     boost::mutex::scoped_lock lock_probe(probe_mutex_);
-    TimePoint arrival_time(
-        boost::chrono::high_resolution_clock::now());
+    TimePoint arrival_time(boost::chrono::high_resolution_clock::now());
 
     probe_interval_history_.push_back(
         DeltaTime(arrival_time, first_probe_arrival_));
   }
 
-  /// @return packets per second
+  /**
+   * @brief 获取数据包到达速度。
+   * @return 数据包每秒到达的数量。
+   */
   double GetPacketArrivalSpeed() {
     boost::mutex::scoped_lock lock_arrival(arrival_mutex_);
     // copy values
@@ -98,7 +120,10 @@ class PacketTimeHistoryWindow {
     }
   }
 
-  /// @return packets per second
+  /**
+   * @brief 获取预估链路容量。
+   * @return 链路每秒传输的数据包数量。
+   */
   double GetEstimatedLinkCapacity() {
     boost::mutex::scoped_lock lock_probe(probe_mutex_);
     // copy values
@@ -128,26 +153,31 @@ class PacketTimeHistoryWindow {
   }
 
  private:
+  /**
+   * @brief 计算两个时间点之间的时间差。
+   * @param t1 第一个时间点。
+   * @param t2 第二个时间点。
+   * @return 时间差，以微秒为单位。
+   */
   MicrosecUnit DeltaTime(const TimePoint &t1, const TimePoint &t2) {
     return boost::chrono::duration_cast<boost::chrono::microseconds>(t1 - t2)
         .count();
   }
 
  private:
-  // delta in micro seconds
-  boost::mutex arrival_mutex_;
-  uint32_t max_packet_arrival_speed_size_;
-  CircularBuffer arrival_interval_history_;
-  TimePoint last_arrival_;
-  // delta in micro seconds
-  boost::mutex probe_mutex_;
-  uint32_t max_probe_interval_size_;
-  CircularBuffer probe_interval_history_;
-  TimePoint first_probe_arrival_;
+  boost::mutex arrival_mutex_;              // 数据包到达时间互斥锁
+  uint32_t max_packet_arrival_speed_size_;  // 最大到达时间间隔历史记录大小
+  CircularBuffer arrival_interval_history_;  // 数据包到达时间间隔历史记录
+  TimePoint last_arrival_;                   // 上次数据包到达时间
+
+  boost::mutex probe_mutex_;          // 探测时间互斥锁
+  uint32_t max_probe_interval_size_;  // 最大探测时间间隔历史记录大小
+  CircularBuffer probe_interval_history_;  // 探测时间间隔历史记录
+  TimePoint first_probe_arrival_;          // 第一次探测时间
 };
 
-}  // connected
-}  // state
-}  // connected_protocol
+}  // namespace connected
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_PACKET_TIME_HISTORY_WINDOW_H_

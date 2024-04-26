@@ -1,19 +1,16 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_RECEIVER_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_RECEIVER_H_
 
-#include <cstdint>
-
 #include <atomic>
-#include <map>
-#include <queue>
-#include <set>
-
-#include <boost/asio/io_service.hpp>
 #include <boost/asio/basic_waitable_timer.hpp>
-
+#include <boost/asio/io_service.hpp>
 #include <boost/chrono.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/thread/mutex.hpp>
+#include <cstdint>
+#include <map>
+#include <queue>
+#include <set>
 
 #include "udt/common/error/error.h"
 #include "udt/connected_protocol/io/buffers.h"
@@ -26,6 +23,12 @@ namespace connected_protocol {
 namespace state {
 namespace connected {
 
+/**
+ * @brief 接收器类，用于接收数据报文并处理相关操作。
+ *
+ * @tparam Protocol 协议类型
+ * @tparam ConnectedState 连接状态类型
+ */
 template <class Protocol, class ConnectedState>
 class Receiver {
  private:
@@ -46,6 +49,11 @@ class Receiver {
   using ReceivedDatagramsMap = std::map<PacketSequenceNumber, DataDatagram>;
 
  public:
+  /**
+   * @brief 构造函数，创建一个接收器对象。
+   *
+   * @param p_session 指向套接字会话的智能指针
+   */
   Receiver(typename SocketSession::Ptr p_session)
       : mutex_(),
         p_session_(p_session),
@@ -68,6 +76,12 @@ class Receiver {
         last_ack_number_(0),
         last_ack_timestamp_(Clock::now()) {}
 
+  /**
+   * @brief 初始化接收器对象。
+   *
+   * @param p_state 指向连接状态的智能指针
+   * @param initial_packet_seq_num 初始数据报文序列号
+   */
   void Init(typename ConnectedState::Ptr p_state,
             PacketSequenceNumber initial_packet_seq_num) {
     auto p_session = p_session_.lock();
@@ -96,11 +110,19 @@ class Receiver {
     }
   }
 
+  /**
+   * @brief 停止接收器对象的操作。
+   */
   void Stop() {
     CloseReadOpsQueue();
     p_state_.reset();
   }
 
+  /**
+   * @brief 处理接收到的数据报文。
+   *
+   * @param p_datagram 指向数据报文的指针
+   */
   void OnDataDatagram(DataDatagram *p_datagram) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -186,6 +208,13 @@ class Receiver {
         &Receiver::HandleQueues, this, boost::system::error_code(), p_state_));
   }
 
+  /**
+   * @brief 存储ACK信息。
+   *
+   * @param ack_seq_num ACK序列号
+   * @param ack_number ACK号
+   * @param light_ack 是否为轻量级ACK
+   */
   void StoreAck(AckSequenceNumber ack_seq_num, PacketSequenceNumber ack_number,
                 bool light_ack) {
     ack_history_window_.StoreAck(ack_seq_num, ack_number);
@@ -194,6 +223,15 @@ class Receiver {
     }
   }
 
+  /**
+   * @brief 对ACK进行确认。
+   *
+   * @param ack_seq_num ACK序列号
+   * @param p_packet_seq_num 用于返回数据报文序列号的指针
+   * @param p_rtt 用于返回往返时间的指针
+   * @return true 如果ACK被确认
+   * @return false 如果ACK未被确认
+   */
   bool AckAck(AckSequenceNumber ack_seq_num,
               PacketSequenceNumber *p_packet_seq_num,
               boost::chrono::microseconds *p_rtt) {
@@ -201,20 +239,37 @@ class Receiver {
                                            p_rtt);
   }
 
-  // @return buffer size in bytes
+  /**
+   * @brief 获取可用的接收缓冲区大小。
+   *
+   * @return uint32_t 缓冲区大小（字节）
+   */
   uint32_t AvailableReceiveBufferSize() {
     boost::mutex::scoped_lock lock(packets_received_mutex_);
     return max_received_size_ - static_cast<uint32_t>(packets_received_.size());
   }
 
+  /**
+   * @brief 获取数据报文到达速度。
+   *
+   * @return double 数据报文到达速度
+   */
   double GetPacketArrivalSpeed() {
     return packet_history_window_.GetPacketArrivalSpeed();
   }
 
+  /**
+   * @brief 获取估计的链路容量。
+   *
+   * @return double 估计的链路容量
+   */
   double GetEstimatedLinkCapacity() {
     return packet_history_window_.GetEstimatedLinkCapacity();
   }
 
+  /**
+   * @brief 增加EXP计数器的值。
+   */
   void IncExpCounter() { exp_count_ = exp_count_.load() + 1; }
 
   void ResetExpCounter() {
@@ -223,8 +278,19 @@ class Receiver {
     last_exp_reset_timestamp_ = Clock::now();
   }
 
+  /**
+   * @brief 获取EXP计数器的值。
+   *
+   * @return uint64_t EXP计数器的值
+   */
   uint64_t exp_count() { return exp_count_.load(); }
 
+  /**
+   * @brief 检查是否存在超时。
+   *
+   * @return true 如果存在超时
+   * @return false 如果不存在超时
+   */
   bool HasTimeout() {
     boost::mutex::scoped_lock lock(mutex_);
     return exp_count_.load() > 16 &&
@@ -233,6 +299,11 @@ class Receiver {
                    .count() > 10;
   }
 
+  /**
+   * @brief 将读操作添加到队列中。
+   *
+   * @param read_op 指向读操作的指针
+   */
   void PushReadOp(io::basic_pending_stream_read_operation<Protocol> *read_op) {
     auto p_session = p_session_.lock();
     if (!p_session) {
@@ -247,6 +318,12 @@ class Receiver {
         &Receiver::HandleQueues, this, boost::system::error_code(), p_state_));
   }
 
+  /**
+   * @brief 获取ACK号。
+   *
+   * @param packet_seq_gen 数据报文序列号生成器
+   * @return PacketSequenceNumber ACK号
+   */
   PacketSequenceNumber AckNumber(const SequenceGenerator &packet_seq_gen) {
     boost::mutex::scoped_lock lock(mutex_);
     if (loss_list_.empty()) {
@@ -256,6 +333,11 @@ class Receiver {
     }
   }
 
+  /**
+   * @brief 设置最大确认序列号。
+   *
+   * @param largest_acknowledged_seq_number 最大确认序列号
+   */
   void set_largest_acknowledged_seq_number(
       PacketSequenceNumber largest_acknowledged_seq_number) {
     boost::mutex::scoped_lock lock(mutex_);
@@ -267,40 +349,78 @@ class Receiver {
     return largest_acknowledged_seq_number_;
   }
 
+  /**
+   * @brief 设置最大ACK号。
+   *
+   * @param largest_ack_number_acknowledged 最大ACK号
+   */
   void set_largest_ack_number_acknowledged(
       PacketSequenceNumber largest_ack_number_acknowledged) {
     boost::mutex::scoped_lock lock(mutex_);
     largest_ack_number_acknowledged_ = largest_ack_number_acknowledged;
   }
 
+  /**
+   * @brief 获取最大ACK号。
+   * 
+   * @return PacketSequenceNumber 最大ACK号
+   */
   PacketSequenceNumber largest_ack_number_acknowledged() {
     boost::mutex::scoped_lock lock(mutex_);
     return largest_ack_number_acknowledged_;
   }
 
+  /**
+   * @brief 设置最后一个ACK2序列号。
+   * 
+   * @param last_ack2_seq_number 最后一个ACK2序列号
+   */
   void set_last_ack2_seq_number(AckSequenceNumber last_ack2_seq_number) {
     boost::mutex::scoped_lock lock(mutex_);
     last_ack2_seq_number_ = last_ack2_seq_number;
     last_ack2_timestamp_ = Clock::now();
   }
 
+  /**
+   * @brief 设置最后一个ACK号。
+   * 
+   * @param last_ack_number 最后一个ACK号
+   */
   void set_last_ack_number(PacketSequenceNumber last_ack_number) {
     boost::mutex::scoped_lock lock(mutex_);
     last_ack_number_ = last_ack_number;
   }
 
+
+  /**
+   * @brief 获取最后一个ACK号。
+   * 
+   * @return PacketSequenceNumber 最后一个ACK号
+   */
   PacketSequenceNumber last_ack_number() {
     boost::mutex::scoped_lock lock(mutex_);
     return last_ack_number_;
   }
 
+
+  /**
+   * @brief 获取最后一个ACK的时间戳。
+   * 
+   * @return TimePoint 最后一个ACK的时间戳
+   */
   TimePoint last_ack_timestamp() {
     boost::mutex::scoped_lock lock(mutex_);
     return last_ack_timestamp_;
   }
 
  private:
-  void HandleQueues(const boost::system::error_code &ec,
+  /**
+ * @brief 处理队列。
+ *
+ * @param ec 错误码
+ * @param p_state 连接状态
+ */
+void HandleQueues(const boost::system::error_code &ec,
                     typename ConnectedState::Ptr p_state) {
     auto p_session = p_session_.lock();
     if (!p_session || !p_state_) {
@@ -370,13 +490,17 @@ class Receiver {
       }
     }
 
-    auto do_complete =
-        [read_op, ec, copied]() { read_op->complete(ec, copied); };
+    auto do_complete = [read_op, ec, copied]() {
+      read_op->complete(ec, copied);
+    };
 
     p_session->get_io_service().post(std::move(do_complete));
   }
 
-  void CloseReadOpsQueue() {
+/**
+ * @brief 关闭读操作队列。
+ */
+void CloseReadOpsQueue() {
     auto p_session = p_session_.lock();
     if (!p_session) {
       return;
@@ -445,8 +569,8 @@ class Receiver {
   TimePoint last_ack_timestamp_;
 };
 
-}  // connected
-}  // state
-}  // connected_protocol
+}  // namespace connected
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_RECEIVER_H_
