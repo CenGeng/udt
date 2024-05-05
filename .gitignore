@@ -2,3 +2,5 @@
 /build64
 /third_party
 .vscode
+/.idea
+/cmake-build-debug

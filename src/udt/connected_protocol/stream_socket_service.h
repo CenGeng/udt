@@ -1,298 +1,286 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STREAM_SOCKET_SERVICE_H_
 #define UDT_CONNECTED_PROTOCOL_STREAM_SOCKET_SERVICE_H_
 
+#include <memory>
+
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/asio/use_future.hpp>
-#include <memory>
 
 #include "udt/common/error/error.h"
+
 #include "udt/connected_protocol/io/connect_op.h"
-#include "udt/connected_protocol/io/read_op.h"
 #include "udt/connected_protocol/io/write_op.h"
+#include "udt/connected_protocol/io/read_op.h"
+
 #include "udt/connected_protocol/state/connecting_state.h"
 
 namespace connected_protocol {
 
-/**
- * @brief 用于处理流式套接字的服务类。
- *
- * stream_socket_service 是一个模板类，用于处理特定协议的流式套接字操作。
- * 它继承自 boost::asio::detail::service_base，是一个服务类的基类。
- *
- * @tparam Protocol 协议类型，用于指定流式套接字的协议。
- */
-template <class Protocol>
+#include <boost/asio/detail/push_options.hpp>
+
+template <class Prococol>
 class stream_socket_service : public boost::asio::detail::service_base<
-                                  stream_socket_service<Protocol>> {
+                                  stream_socket_service<Prococol>> {
  public:
-  using protocol_type = Protocol;  ///< 协议类型
+  using protocol_type = Prococol;
 
   struct implementation_type {
     implementation_type()
         : p_multiplexer(nullptr), p_session(nullptr), timeout(60) {}
 
-    std::shared_ptr<typename protocol_type::multiplexer>
-        p_multiplexer;  ///< 多路复用器指针
-    std::shared_ptr<typename protocol_type::socket_session>
-        p_session;  ///< 套接字会话指针
-    int timeout;    ///< 超时时间
+    std::shared_ptr<typename protocol_type::multiplexer> p_multiplexer;
+    std::shared_ptr<typename protocol_type::socket_session> p_session;
+    int timeout;
   };
 
-  using endpoint_type = typename protocol_type::endpoint;  ///< 端点类型
+  using endpoint_type = typename protocol_type::endpoint;
 
-  using native_handle_type = implementation_type&;  ///< 本地句柄类型
-  using native_type = native_handle_type;           ///< 本地类型
+  using native_handle_type = implementation_type&;
+  using native_type = native_handle_type;
 
  private:
-  using next_endpoint_type = typename protocol_type::next_layer_protocol::
-      endpoint;  ///< 下一层协议的端点类型
-  using multiplexer = typename protocol_type::multiplexer;  ///< 多路复用器类型
+  using next_endpoint_type =
+      typename protocol_type::next_layer_protocol::endpoint;
+  using multiplexer = typename protocol_type::multiplexer;
 
-  using ConnectingState = typename connected_protocol::state::ConnectingState<
-      protocol_type>;  ///< 连接状态类型
-  using ClosedState = typename connected_protocol::state::ClosedState<
-      protocol_type>;  ///< 关闭状态类型
+  using ConnectingState =
+      typename connected_protocol::state::ConnectingState<protocol_type>;
+  using ClosedState =
+      typename connected_protocol::state::ClosedState<protocol_type>;
 
  public:
-  /**
-   * @brief 构造函数。
-   *
-   * @param io_service IO 服务对象的引用。
-   */
-  explicit stream_socket_service(boost::asio::io_service& io_service);
+  explicit stream_socket_service(boost::asio::io_service& io_service)
+      : boost::asio::detail::service_base<stream_socket_service>(io_service) {}
 
-  /**
-   * @brief 析构函数。
-   */
-  virtual ~stream_socket_service();
+  virtual ~stream_socket_service() {}
 
-  /**
-   * @brief 构造套接字实现。
-   *
-   * @param impl 套接字实现对象的引用。
-   */
-  void construct(implementation_type& impl);
+  void construct(implementation_type& impl) {
+    impl.p_session.reset();
+    impl.p_multiplexer.reset();
+  }
 
-  /**
-   * @brief 销毁套接字实现。
-   *
-   * @param impl 套接字实现对象的引用。
-   */
-  void destroy(implementation_type& impl);
+  void destroy(implementation_type& impl) {
+    impl.p_session.reset();
+    impl.p_multiplexer.reset();
+  }
 
-  /**
-   * @brief 移动构造套接字实现。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param other 要移动的套接字实现对象的引用。
-   */
-  void move_construct(implementation_type& impl, implementation_type& other);
+  void move_construct(implementation_type& impl, implementation_type& other) {
+    impl = std::move(other);
+  }
 
-  /**
-   * @brief 移动赋值套接字实现。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param other 要移动赋值的套接字实现对象的引用。
-   */
-  void move_assign(implementation_type& impl, implementation_type& other);
+  void move_assign(implementation_type& impl, implementation_type& other) {
+    impl = std::move(other);
+  }
 
-  /**
-   * @brief 打开套接字。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param protocol 协议对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 打开套接字的错误码。
-   */
   boost::system::error_code open(implementation_type& impl,
                                  const protocol_type& protocol,
-                                 boost::system::error_code& ec);
+                                 boost::system::error_code& ec) {
+    ec.assign(::common::error::success, ::common::error::get_error_category());
+    return ec;
+  }
 
-  /**
-   * @brief 检查套接字是否打开。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @return bool 如果套接字打开则返回 true，否则返回 false。
-   */
-  bool is_open(const implementation_type& impl) const;
+  bool is_open(const implementation_type& impl) const {
+    return impl.p_multiplexer != nullptr || impl.p_session != nullptr;
+  }
 
-  /**
-   * @brief 获取远程端点。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return endpoint_type 远程端点。
-   */
   endpoint_type remote_endpoint(const implementation_type& impl,
-                                boost::system::error_code& ec) const;
+                                boost::system::error_code& ec) const {
+    if (impl.p_session &&
+        impl.p_session->next_remote_endpoint() != next_endpoint_type()) {
+      ec.assign(::common::error::success,
+                ::common::error::get_error_category());
+      return endpoint_type(impl.p_session->remote_socket_id(),
+                           impl.p_session->next_remote_endpoint());
+    } else {
+      ec.assign(::common::error::no_link,
+                ::common::error::get_error_category());
+      return endpoint_type();
+    }
+  }
 
-  /**
-   * @brief 获取本地端点。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return endpoint_type 本地端点。
-   */
   endpoint_type local_endpoint(const implementation_type& impl,
-                               boost::system::error_code& ec) const;
+                               boost::system::error_code& ec) const {
+    if (impl.p_session &&
+        impl.p_session->next_local_endpoint() != next_endpoint_type()) {
+      ec.assign(::common::error::success,
+                ::common::error::get_error_category());
+      return endpoint_type(impl.p_session->socket_id(),
+                           impl.p_session->next_local_endpoint());
+    } else {
+      ec.assign(::common::error::no_link,
+                ::common::error::get_error_category());
+      return endpoint_type();
+    }
+  }
 
-  /**
-   * @brief 关闭套接字。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 关闭套接字的错误码。
-   */
   boost::system::error_code close(implementation_type& impl,
-                                  boost::system::error_code& ec);
+                                  boost::system::error_code& ec) {
+    if (impl.p_session) {
+      impl.p_session->Close();
+    }
 
-  /**
-   * @brief 获取本地句柄。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @return native_type 本地句柄。
-   */
-  native_type native(implementation_type& impl);
+    impl.p_session.reset();
+    impl.p_multiplexer.reset();
+    ec.assign(::common::error::success, ::common::error::get_error_category());
+    return ec;
+  }
 
-  /**
-   * @brief 获取本地句柄。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @return native_handle_type 本地句柄。
-   */
-  native_handle_type native_handle(implementation_type& impl);
+  native_type native(implementation_type& impl) { return impl; }
 
-  /**
-   * @brief 检查是否在标记位置。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return bool 如果在标记位置则返回 true，否则返回 false。
-   */
+  native_handle_type native_handle(implementation_type& impl) { return impl; }
+
   bool at_mark(const implementation_type& impl,
-               boost::system::error_code& ec) const;
+               boost::system::error_code& ec) const {
+    ec.assign(::common::error::function_not_supported,
+              ::common::error::get_error_category());
+    return false;
+  }
 
-  /**
-   * @brief 获取可用字节数。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return std::size_t 可用字节数。
-   */
   std::size_t available(const implementation_type& impl,
-                        boost::system::error_code& ec) const;
+                        boost::system::error_code& ec) const {
+    ec.assign(::common::error::function_not_supported,
+              ::common::error::get_error_category());
+    return 0;
+  }
 
-  /**
-   * @brief 取消操作。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 取消操作的错误码。
-   */
   boost::system::error_code cancel(implementation_type& impl,
-                                   boost::system::error_code& ec);
+                                   boost::system::error_code& ec) {
+    ec.assign(::common::error::function_not_supported,
+              ::common::error::get_error_category());
+    return ec;
+  }
 
-  /**
-   * @brief 绑定套接字。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param local_endpoint 本地端点对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 绑定套接字的错误码。
-   */
   boost::system::error_code bind(implementation_type& impl,
                                  const endpoint_type& local_endpoint,
-                                 boost::system::error_code& ec);
+                                 boost::system::error_code& ec) {
+    if (impl.p_session || impl.p_multiplexer) {
+      ec.assign(::common::error::device_or_resource_busy,
+                ::common::error::get_error_category());
+      return ec;
+    }
 
-  /**
-   * @brief 连接套接字。
-   *
-   * @param impl 套接字实现对象的引用。
-   * @param peer_endpoint 远程端点对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 连接套接字的错误码。
-   */
+    impl.p_multiplexer = protocol_type::multiplexers_manager_.GetMultiplexer(
+        this->get_io_service(), local_endpoint.next_layer_endpoint(), ec);
+
+    return ec;
+  }
+
   boost::system::error_code connect(implementation_type& impl,
                                     const endpoint_type& peer_endpoint,
-                                    boost::system::error_code& ec);
+                                    boost::system::error_code& ec) {
+    try {
+      ec.clear();
+      auto future_value =
+          async_connect(impl, peer_endpoint, boost::asio::use_future);
+      future_value.get();
+      ec.assign(::common::error::success,
+                ::common::error::get_error_category());
+    } catch (const std::system_error& e) {
+      ec.assign(e.code().value(), ::common::error::get_error_category());
+    }
+    return ec;
+  }
 
-  /**
-   * @brief 异步连接套接字。
-   *
-   * @tparam ConnectHandler 连接处理器类型。
-   * @param impl 套接字实现对象的引用。
-   * @param peer_endpoint 远程端点对象的引用。
-   * @param handler 连接处理器。
-   * @return BOOST_ASIO_INITFN_RESULT_TYPE(ConnectHandler,
-   * void(boost::system::error_code)) 异步操作的结果类型。
-   */
   template <typename ConnectHandler>
   BOOST_ASIO_INITFN_RESULT_TYPE(ConnectHandler, void(boost::system::error_code))
-  async_connect(implementation_type& impl, const endpoint_type& peer_endpoint,
-                BOOST_ASIO_MOVE_ARG(ConnectHandler) handler);
+      async_connect(implementation_type& impl,
+                    const endpoint_type& peer_endpoint,
+                    BOOST_ASIO_MOVE_ARG(ConnectHandler) handler) {
+    boost::asio::detail::async_result_init<ConnectHandler,
+                                           void(boost::system::error_code)>
+        init(std::forward<ConnectHandler>(handler));
 
-  /**
-   * @brief 设置套接字选项。
-   *
-   * @tparam SettableSocketOption 可设置的套接字选项类型。
-   * @param impl 套接字实现对象的引用。
-   * @param option 套接字选项对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 设置套接字选项的错误码。
-   */
+    boost::system::error_code ec;
+    if (!impl.p_multiplexer) {
+      impl.p_multiplexer = protocol_type::multiplexers_manager_.GetMultiplexer(
+          this->get_io_service(),
+          typename protocol_type::next_layer_protocol::endpoint(), ec);
+
+      if (ec) {
+        this->get_io_service().post(
+            boost::asio::detail::binder1<decltype(init.handler),
+                                         boost::system::error_code>(
+                init.handler, ec));
+        return init.result.get();
+      }
+    }
+
+    impl.p_session = impl.p_multiplexer->CreateSocketSession(
+        ec, peer_endpoint.next_layer_endpoint());
+    if (ec) {
+      this->get_io_service().post(boost::asio::detail::binder1<
+          decltype(init.handler), boost::system::error_code>(init.handler, ec));
+      return init.result.get();
+    }
+
+    using connect_op_type =
+        io::pending_connect_operation<decltype(init.handler), protocol_type>;
+    typename connect_op_type::ptr p = {
+        boost::asio::detail::addressof(init.handler),
+        boost_asio_handler_alloc_helpers::allocate(sizeof(connect_op_type),
+                                                   init.handler),
+        0};
+
+    p.p = new (p.v) connect_op_type(init.handler);
+    impl.p_session->ChangeState(ConnectingState::Create(impl.p_session, p.p));
+    p.v = p.p = 0;
+
+    return init.result.get();
+  }
+
+  /// Set a socket option.
   template <typename SettableSocketOption>
   boost::system::error_code set_option(implementation_type& impl,
                                        const SettableSocketOption& option,
-                                       boost::system::error_code& ec);
+                                       boost::system::error_code& ec) {
+    if (!impl.p_session) {
+      impl.timeout = option.value();
+      ec.assign(::common::error::success,
+                ::common::error::get_error_category());
+      return ec;
+    }
 
-  /**
-   * @brief 获取套接字选项。
-   *
-   * @tparam GettableSocketOption 可获取的套接字选项类型。
-   * @param impl 套接字实现对象的引用。
-   * @param option 套接字选项对象的引用。
-   * @param ec 用于返回错误码的引用。
-   * @return boost::system::error_code 获取套接字选项的错误码。
-   */
+    if (option.name(protocol_type::v4()) == protocol_type::TIMEOUT_DELAY) {
+      impl.p_session->set_timeout_delay(option.value());
+    }
+
+    return ec;
+  }
+
+  /// Get a socket option.
   template <typename GettableSocketOption>
   boost::system::error_code get_option(const implementation_type& impl,
                                        GettableSocketOption& option,
-                                       boost::system::error_code& ec) const;
+                                       boost::system::error_code& ec) const {
+    ec.assign(::common::error::function_not_supported,
+              ::common::error::get_error_category());
 
-  /**
-   * @brief 发送数据。
-   *
-   * @tparam ConstBufferSequence 常量缓冲区序列类型。
-   * @param impl 套接字实现对象的引用。
-   * @param buffers 缓冲区序列对象的引用。
-   * @param flags 消息标志。
-   * @param ec 用于返回错误码的引用。
-   * @return std::size_t 发送的字节数。
-   */
+    return ec;
+  }
+
   template <typename ConstBufferSequence>
   std::size_t send(implementation_type& impl,
                    const ConstBufferSequence& buffers,
                    boost::asio::socket_base::message_flags flags,
-                   boost::system::error_code& ec);
+                   boost::system::error_code& ec) {
+    try {
+      ec.clear();
+      auto future_value =
+          async_send(impl, buffers, flags, boost::asio::use_future);
+      return future_value.get();
+    } catch (const std::system_error& e) {
+      ec.assign(e.code().value(), ::common::error::get_error_category());
+      return 0;
+    }
+  }
 
-  /**
-   * @brief 异步发送数据。
-   *
-   * @tparam ConstBufferSequence 常量缓冲区序列类型。
-   * @tparam WriteHandler 写处理器类型。
-   * @param impl 套接字实现对象的引用。
-   * @param buffers 缓冲区序列对象的引用。
-   * @param handler 写处理器。
-   * @return BOOST_ASIO_INITFN_RESULT_TYPE(WriteHandler,
-   * void(boost::system::error_code, std::size_t)) 异步操作的结果类型。
-   */
   template <typename ConstBufferSequence, typename WriteHandler>
   BOOST_ASIO_INITFN_RESULT_TYPE(WriteHandler,
                                 void(boost::system::error_code, std::size_t))
-  async_send(implementation_type& impl, const ConstBufferSequence& buffers,
-             boost::asio::socket_base::message_flags flags,
-             BOOST_ASIO_MOVE_ARG(WriteHandler) handler) {
+      async_send(implementation_type& impl, const ConstBufferSequence& buffers,
+                 boost::asio::socket_base::message_flags flags,
+                 BOOST_ASIO_MOVE_ARG(WriteHandler) handler) {
     boost::asio::detail::async_result_init<
         WriteHandler, void(boost::system::error_code, std::size_t)>
         init(std::forward<WriteHandler>(handler));
@@ -336,16 +324,6 @@ class stream_socket_service : public boost::asio::detail::service_base<
     return init.result.get();
   }
 
-  /**
-   * @brief 从连接的套接字接收数据。
-   *
-   * @tparam MutableBufferSequence 可变缓冲区序列的类型
-   * @param impl 套接字的实现类型
-   * @param buffers 接收数据的可变缓冲区序列
-   * @param flags 消息标志
-   * @param ec 用于存储错误码的对象
-   * @return 成功接收的字节数，如果发生错误则返回0
-   */
   template <typename MutableBufferSequence>
   std::size_t receive(implementation_type& impl,
                       const MutableBufferSequence& buffers,
@@ -362,25 +340,13 @@ class stream_socket_service : public boost::asio::detail::service_base<
     }
   }
 
-  /**
-   * 异步接收数据。
-   *
-   * 此函数用于异步接收数据到指定的缓冲区序列中。接收操作完成后，将调用指定的处理程序。
-   *
-   * @param impl 实现类型的引用，表示要进行接收操作的套接字。
-   * @param buffers 可变缓冲区序列，表示接收到的数据将被写入其中。
-   * @param flags 套接字标志，用于指定接收操作的行为。
-   * @param handler 完成处理程序，将在接收操作完成时被调用。
-   *
-   * @return
-   * 如果操作立即完成，则返回接收到的字节数；否则，返回一个异步结果对象，可以用于获取操作的结果。
-   */
   template <typename MutableBufferSequence, typename ReadHandler>
   BOOST_ASIO_INITFN_RESULT_TYPE(ReadHandler,
                                 void(boost::system::error_code, std::size_t))
-  async_receive(implementation_type& impl, const MutableBufferSequence& buffers,
-                boost::asio::socket_base::message_flags flags,
-                BOOST_ASIO_MOVE_ARG(ReadHandler) handler) {
+      async_receive(implementation_type& impl,
+                    const MutableBufferSequence& buffers,
+                    boost::asio::socket_base::message_flags flags,
+                    BOOST_ASIO_MOVE_ARG(ReadHandler) handler) {
     boost::asio::detail::async_result_init<
         ReadHandler, void(boost::system::error_code, std::size_t)>
         init(std::forward<ReadHandler>(handler));
@@ -424,16 +390,6 @@ class stream_socket_service : public boost::asio::detail::service_base<
     return init.result.get();
   }
 
-  /**
-   * @brief 关闭套接字连接。
-   * 
-   * 此函数用于关闭套接字连接。
-   * 
-   * @param impl 套接字实现类型。
-   * @param what 关闭类型。
-   * @param ec 错误码。
-   * @return 错误码。
-   */
   boost::system::error_code shutdown(
       implementation_type& impl, boost::asio::socket_base::shutdown_type what,
       boost::system::error_code& ec) {
@@ -447,6 +403,6 @@ class stream_socket_service : public boost::asio::detail::service_base<
 
 #include <boost/asio/detail/pop_options.hpp>
 
-}  // namespace connected_protocol
+}  // connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STREAM_SOCKET_SERVICE_H_
