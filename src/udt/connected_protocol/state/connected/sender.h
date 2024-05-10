@@ -1,19 +1,16 @@
 #ifndef UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_SENDER_H_
 #define UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_SENDER_H_
 
+#include <boost/asio/buffers_iterator.hpp>
+#include <boost/asio/io_service.hpp>
+#include <boost/chrono.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/thread/mutex.hpp>
 #include <cstdint>
-
 #include <map>
 #include <queue>
 #include <set>
 #include <unordered_set>
-
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/buffers_iterator.hpp>
-
-#include <boost/chrono.hpp>
-#include <boost/log/trivial.hpp>
-#include <boost/thread/mutex.hpp>
 
 #include "udt/common/error/error.h"
 #include "udt/connected_protocol/io/write_op.h"
@@ -226,10 +223,10 @@ class Sender {
         p_unique_datagram = std::move(packets_to_send_.front());
 
         // Update datagram metadata
-        p_unique_datagram->header().set_timestamp((uint32_t)(
-            boost::chrono::duration_cast<boost::chrono::microseconds>(
-                Clock::now() - p_session->start_timestamp())
-                .count()));
+        p_unique_datagram->header().set_timestamp((
+            uint32_t)(boost::chrono::duration_cast<boost::chrono::microseconds>(
+                          Clock::now() - p_session->start_timestamp())
+                          .count()));
         p_unique_datagram->header().set_packet_sequence_number(seq_num);
         p_unique_datagram->set_pending_send(true);
         p_congestion_control_->UpdateLastSendSeqNum(seq_num);
@@ -521,8 +518,8 @@ class Sender {
   CongestionControl *p_congestion_control_;
 };
 
-}  // connected
-}  // state
-}  // connected_protocol
+}  // namespace connected
+}  // namespace state
+}  // namespace connected_protocol
 
 #endif  // UDT_CONNECTED_PROTOCOL_STATE_CONNECTED_SENDER_H_

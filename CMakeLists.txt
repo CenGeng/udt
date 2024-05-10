@@ -11,6 +11,7 @@ set(project_BINARY_DIR "${${project_name}_BINARY_DIR}")
 set(project_ROOT_DIR "${${project_name}_SOURCE_DIR}")
 set(project_SRC_DIR "${project_ROOT_DIR}/src")
 set(project_THIRDPARTY_DIR "${project_ROOT_DIR}/third_party")
+set(CMAKE_CXX_STANDARD 14)
 
 # --- Project files declaration
 
@@ -114,3 +115,6 @@ endif (BUILD_UNIT_TESTS)
 add_subdirectory("${project_SRC_DIR}/udt_client")
 add_subdirectory("${project_SRC_DIR}/udt_server")
 add_subdirectory("${project_SRC_DIR}/timer_benchmark")
+#add_executable(new_target src/file_transport_server/main.cpp)
+add_subdirectory("${project_SRC_DIR}/file_transport_server")
+add_subdirectory("${project_SRC_DIR}/file_transport_client")
